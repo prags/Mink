@@ -20,6 +20,21 @@ logger = logging.getLogger(__name__)
 logger_boto = logging.getLogger("boto")
 logger_boto.setLevel(logging.INFO)
 
+'''
+Worker class defining basic worker functionalities and variables.
+Usage Commands:
+
+#download algorithms first
+algorithms = Algorithms()
+algorithms.downloadAlgorithms()
+    
+#initialize worker
+worker = Worker()
+worker.cleanTemporaryFolder()
+   
+#Run the worker
+worker.run(algorithms)
+'''
 class Worker(object):
 	region = ""
 	region_host = ""
@@ -137,21 +152,22 @@ class Worker(object):
 	  timestamp = str(time.time())
 	  inputTempFileLocal = os.path.join(self.app_folder, 'data','algorithms',job['algorithm'],'tmp', timestamp, 'input', os.path.splitext(inputFilename)[0])
 	  outputTempFileLocal = os.path.join(self.app_folder, 'data','algorithms',job['algorithm'],'tmp', timestamp,'output', os.path.splitext(inputFilename)[0])
-	  print outputFullFilenameLocal, inputFullFilenameLocal
 	  createDirectory(inputTempFileLocal)
 	  createDirectory(outputTempFileLocal)
 	  
 	  #Download file
 	  ## If LOCAL_STORAGE_ACCESS, should the file be downloaded or compute over the network?  
-	  if self.local_storage_access:
+	  if self.local_storage_access and self.local_storage_access_flag:
 		successfulDownload = downloadFileFromLocalStorage(job['input'], inputFullFilenameLocal, self.storages, job['storage'])
 	  else:
-		successfulDownload = downloadFileFromS3(job['input'], inputFullFilenameLocal, job['storage'], self.region)
+		print job['input'], inputFullFilenameLocal
+		successfulDownload = downloadFileFromS3(job['input'], inputFullFilenameLocal, self.s3bucket, self.region)
 	  if successfulDownload:
 		#Extract files from archive to tmp folder if input is zipped, otherwise  just copy it
 		if job['zipped']=="True":
 			print("Unzipping...", inputFullFilenameLocal, inputTempFileLocal)
-			command = r'""' + self.zip_programpath + '" x "%s" -o"%s" >' %(inputFullFilenameLocal,inputTempFileLocal) + self.app_folder + r'/7zipx.txt"'
+			#command = r'""' + self.zip_programpath + '" x "%s" -o"%s" >' %(inputFullFilenameLocal,inputTempFileLocal) + self.app_folder + r'/7zipx.txt"'
+			command = createZipCommand(self.zip_programpath, inputFullFilenameLocal, inputTempFileLocal, "x")
 			os.system(command)
 		else:
 			libReport(debug,"Copying file from %s to %s" %(inputFullFilenameLocal,inputTempFileLocal),True)
@@ -159,6 +175,7 @@ class Worker(object):
 			shutil.copy2(inputFullFilenameLocal,inputTempFileLocal)  
 		
 	  #Start process in a separate pipe
+	  print [self.python,os.path.join(APP_FOLDER,'algorithms',job['algorithm'],'run.py'), inputTempFileLocal, outputTempFileLocal]
 	  p = Popen([self.python,os.path.join(APP_FOLDER,'algorithms',job['algorithm'],'run.py'), inputTempFileLocal, outputTempFileLocal], stdout=subprocess.PIPE, stderr=subprocess.PIPE)	
 		
 	  #Save output to S3
@@ -173,14 +190,15 @@ class Worker(object):
 	  fileHandle.close()
 	  
 	  #zip the output
-	  command = r'""' + self.zip_programpath + r'" a "%s" "%s\*" >' %(outputFullFilenameLocal,outputTempFileLocal) + self.app_folder + r'/7zipa.txt"'
+	  #command = r'""' + self.zip_programpath + r'" a "%s" "%s\*" >' %(outputFullFilenameLocal,outputTempFileLocal) + self.app_folder + r'/7zipa.txt"'
+	  command = createZipCommand(self.zip_programpath, outputTempFileLocal, outputFullFilenameLocal, "a")
 	  os.system(command)
 	  
 	  #Upload the output file to S3
-	  if LOCAL_STORAGE_ACCESS:
+	  if self.local_storage_access and self.local_storage_access_flag:
 		uploadFileToLocalStorage(outputFullFilenameLocal,job['output'], self.storages, job['storage'])
 	  else:
-		uploadFileToS3(outputFullFilenameLocal,job['output'],job['storage'])
+		uploadFileToS3(outputFullFilenameLocal,job['output'],self.s3bucket)
 	  
 	  #Clean up: delete local input/output/tmp folders
 	  try:
@@ -201,11 +219,13 @@ class Algorithms:
 	s3bucket = ""
 	app_folder = ""
 	region = ""
-		
+	zip_programpath = ""
+			
 	def __init__(self):
 		self.s3bucket = S3BUCKET
 		self.app_folder = APP_FOLDER	
 		self.region = REGION	
+		self.zip_programpath = ZIP_PROGRAMPATH
 	
 	def getSupportedAlgorithms(self):
 	  libReport(debug,"getting algorithms on the worker...")
@@ -254,8 +274,8 @@ class Algorithms:
 			createDirectory(dirName)
 			os.chdir(dirName)
 			#Extract files from archive to tmp folder
-			#command = r'""' + ZIP_PROGRAMPATH + r'" x "%s" -aoa\\?\"%s""' %(zipfileName,os.path.join(APP_FOLDER,'algorithms',algorithmName))
-			command = r'""' + ZIP_PROGRAMPATH + r'" x "%s" -aoa"' %(zipfileName)
+			#command = r'""' + ZIP_PROGRAMPATH + r'" x "%s" -aoa"' %(zipfileName)
+			command = self.zip_programpath + r' x %s -aoa' %(zipfileName)
 			print command
 			os.system(command)
 			#Only copy folder which has the algorithm name, in case algorithm was not in a proper archive structure	

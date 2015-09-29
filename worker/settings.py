@@ -6,7 +6,7 @@ S3BUCKET = 'mink-server'
 S3_QUEUE_NAME = "MINK_QUEUE"
 LOCAL_QUEUE_NAME = "LOCALSTORAGE_QUEUE"
 LOCAL_STORAGE_ACCESS=False
-LOCAL_STORAGE_ACCESS_FLAG = True
+LOCAL_STORAGE_ACCESS_FLAG = False
 
 S3_MAX_TRIALS = 10
 ZIP_PROGRAMPATH = ""
@@ -29,3 +29,5 @@ elif _platform == "win32":
     ZIP_PROGRAMPATH = r'"C:\Program Files\7-Zip\7z.exe"'
     STORAGES = {"rdstorage1":"R:","resfilsp03":"S:", "resfilsp04":"Z:"}
     WORKER_PLATFORM = "WINDOWS"
+
+CREATE_NO_WINDOW = 0x08000000
